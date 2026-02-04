@@ -1,0 +1,33 @@
+{
+  "name": "@openclaw/arcade",
+  "version": "2026.1.28",
+  "type": "module",
+  "description": "OpenClaw plugin for Arcade.dev tool authorization and execution",
+  "keywords": [
+    "openclaw",
+    "arcade",
+    "mcp",
+    "tools",
+    "oauth",
+    "ai-agents"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/openclaw/openclaw.git",
+    "directory": "extensions/arcade"
+  },
+  "dependencies": {
+    "@arcadeai/arcadejs": "^2.1.0",
+    "@sinclair/typebox": "0.34.47",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "id": "arcade",
+  "name": "Arcade.dev",
+  "description": "Connect to Arcade.dev for authorized tools (Gmail, Slack, GitHub, etc.)",
+  "version": "2026.1.28",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Enable the Arcade plugin",
+        "default": true
+      },
+      "apiKey": {
+        "type": "string",
+        "description": "Arcade API key (from api.arcade.dev)"
+      },
+      "userId": {
+        "type": "string",
+        "description": "User ID for tool authorization tracking"
+      },
+      "baseUrl": {
+        "type": "string",
+        "description": "Arcade API base URL",
+        "default": "https://api.arcade.dev"
+      },
+      "toolPrefix": {
+        "type": "string",
+        "description": "Prefix for registered tools",
+        "default": "arcade"
+      },
+      "toolkits": {
+        "type": "object",
+        "description": "Per-toolkit configuration",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable this toolkit"
+            },
+            "tools": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Specific tools to enable (empty = all)"
+            }
+          }
+        }
+      },
+      "tools": {
+        "type": "object",
+        "description": "Tool filtering configuration",
+        "properties": {
+          "allow": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Allowlist patterns (e.g., Gmail.*, Slack.PostMessage)"
+          },
+          "deny": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Denylist patterns"
+          }
+        }
+      },
+      "autoAuth": {
+        "type": "boolean",
+        "description": "Automatically prompt for authorization when needed",
+        "default": true
+      },
+      "cacheToolsTtlMs": {
+        "type": "number",
+        "description": "How long to cache tool definitions (ms)",
+        "default": 300000
+      },
+      "useApiTools": {
+        "type": "boolean",
+        "description": "Include comprehensive *Api toolkits (e.g., GithubApi, SlackApi) with more tools",
+        "default": false
+      }
+    },
+    "required": []
+  },
+  "uiHints": {
+    "enabled": {
+      "label": "Enable Arcade Plugin"
+    },
+    "apiKey": {
+      "label": "Arcade API Key",
+      "sensitive": true,
+      "placeholder": "arc_..."
+    },
+    "userId": {
+      "label": "User ID",
+      "placeholder": "user@example.com"
+    },
+    "baseUrl": {
+      "label": "API Base URL",
+      "advanced": true
+    },
+    "toolPrefix": {
+      "label": "Tool Name Prefix",
+      "advanced": true
+    },
+    "autoAuth": {
+      "label": "Auto-prompt Authorization"
+    },
+    "cacheToolsTtlMs": {
+      "label": "Tool Cache TTL (ms)",
+      "advanced": true
+    },
+    "useApiTools": {
+      "label": "Include API Toolkits",
+      "description": "Include comprehensive *Api toolkits (GithubApi, SlackApi, etc.) with more tools"
+    }
+  }
+}
