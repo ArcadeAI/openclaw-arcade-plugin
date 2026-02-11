@@ -1,0 +1,37 @@
+{
+  "name": "@openclaw/arcade-mcp",
+  "version": "2026.2.11",
+  "type": "module",
+  "description": "OpenClaw plugin: connect to any MCP gateway with header-based auth. Multi-gateway support for centralized tool governance.",
+  "keywords": [
+    "openclaw",
+    "arcade",
+    "mcp",
+    "gateway",
+    "tools",
+    "governance"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ArcadeAI/openclaw-arcade-plugin.git",
+    "directory": "arcade-mcp"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@sinclair/typebox": "0.34.47",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "typescript": "^5.9.3"
+  }
+}
