@@ -43,6 +43,33 @@ describe("toOpenClawToolName", () => {
       "arcade_search_query",
     );
   });
+
+  it("strips version suffix from tool names", () => {
+    expect(toOpenClawToolName("AirtableApi.AddBaseCollaborator@4.0.0", "arcade")).toBe(
+      "arcade_airtable_api_add_base_collaborator",
+    );
+  });
+
+  it("strips version suffix from simple tool names", () => {
+    expect(toOpenClawToolName("Gmail.SendEmail@1.1.1", "arcade")).toBe(
+      "arcade_gmail_send_email",
+    );
+  });
+
+  it("produces names matching LLM tool name pattern", () => {
+    const pattern = /^[a-zA-Z0-9_-]{1,128}$/;
+    const toolNames = [
+      "AirtableApi.AddBaseCollaborator@4.0.0",
+      "Gmail.SendEmail@1.1.1",
+      "Asana.AttachFileToTask@1.1.1",
+      "GithubApi.CreateIssue@2.0.0",
+      "PosthogApi.GetDashboard@1.0.0",
+    ];
+    for (const name of toolNames) {
+      const converted = toOpenClawToolName(name, "arcade");
+      expect(converted).toMatch(pattern);
+    }
+  });
 });
 
 describe("toArcadeToolName", () => {
@@ -80,6 +107,8 @@ describe("tool name round-trip", () => {
     "GitHub.CreateIssue",
     "Notion.GetPage",
     "Stripe.ListCustomers",
+    "Gmail.SendEmail@1.1.1",
+    "AirtableApi.AddBaseCollaborator@4.0.0",
   ];
 
   for (const arcadeName of testCases) {

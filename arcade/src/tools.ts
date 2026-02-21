@@ -109,17 +109,22 @@ function convertToolParametersToTypebox(tool: ArcadeToolDefinition): TObject {
 /**
  * Convert Arcade tool name to OpenClaw tool name
  * Arcade: "Gmail.SendEmail" -> OpenClaw: "arcade_gmail_send_email"
+ * Arcade: "Gmail.SendEmail@1.1.1" -> OpenClaw: "arcade_gmail_send_email"
  */
 export function toOpenClawToolName(arcadeName: string, prefix: string): string {
+  // Strip version suffix (e.g., "@4.0.0") — the Arcade API includes these
+  // but they contain characters invalid for LLM tool names
+  const nameWithoutVersion = arcadeName.replace(/@[\d.]+$/, "");
   // Split by dots or camelCase
-  const parts = arcadeName.split(".");
+  const parts = nameWithoutVersion.split(".");
   const converted = parts
     .map((part) =>
-      // Convert CamelCase to snake_case
+      // Convert CamelCase to snake_case, then strip any remaining invalid chars
       part
         .replace(/([A-Z])/g, "_$1")
         .toLowerCase()
-        .replace(/^_/, ""),
+        .replace(/^_/, "")
+        .replace(/[^a-z0-9_-]/g, "_"),
     )
     .join("_");
 
