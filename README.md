@@ -29,6 +29,18 @@ git clone --depth 1 https://github.com/ArcadeAI/openclaw-arcade-plugin /tmp/open
 openclaw plugins install /tmp/openclaw-arcade/arcade
 ```
 
+Then add `arcade` to your trusted plugins in `~/.openclaw/openclaw.json`:
+
+```json5
+{
+  plugins: {
+    allow: ["arcade"]
+  }
+}
+```
+
+Without this, OpenClaw will log a warning on every startup about untrusted non-bundled plugins.
+
 ## Configuration
 
 ### Setting Up Credentials
