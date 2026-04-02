@@ -9,7 +9,7 @@ import { Type, type TSchema, type TObject } from "@sinclair/typebox";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { ArcadeClient, ArcadeToolDefinition, ArcadeToolParameter } from "./client.js";
 import type { ArcadeConfig } from "./config.js";
-import { matchesToolFilter, isApiToolkit } from "./config.js";
+import { matchesToolFilter, isApiToolkit, resolveEffectiveToolsFilter } from "./config.js";
 
 // ============================================================================
 // Types
@@ -185,8 +185,7 @@ export function createOpenClawTool(
         // Check if client is configured
         if (!client.isConfigured()) {
           return json({
-            error: "Arcade API key not configured",
-            help: "Set ARCADE_API_KEY or configure plugins.entries.arcade.config.apiKey",
+            error: "Arcade plugin is not configured. Please check plugin settings.",
           });
         }
 
@@ -204,12 +203,41 @@ export function createOpenClawTool(
 
         if (!result.success) {
           if (result.authorization_required && result.authorization_url) {
-            return json({
+            // Try to get toolkit-level auth URL for a single combined OAuth flow
+            const toolkitName = typeof arcadeTool.toolkit === "string"
+              ? arcadeTool.toolkit
+              : arcadeTool.toolkit?.name ?? "";
+            let toolkitAuthUrl: string | undefined;
+
+            try {
+              const tkAuth = await client.authorizeToolkit(toolkitName);
+              if (tkAuth.status !== "completed" && tkAuth.authorization_url) {
+                toolkitAuthUrl = tkAuth.authorization_url;
+              }
+            } catch {
+              // Toolkit-level auth not available
+            }
+
+            const authResponse: Record<string, unknown> = {
               error: "Authorization required",
-              message: `Please authorize this tool by visiting: ${result.authorization_url}`,
-              authorization_url: result.authorization_url,
               tool: arcadeTool.name,
-            });
+              tool_authorization_url: result.authorization_url,
+            };
+
+            if (toolkitAuthUrl) {
+              authResponse.toolkit_authorization_url = toolkitAuthUrl;
+              authResponse.message =
+                `Authorization required for ${arcadeTool.name}.\n\n` +
+                `Option 1 — Authorize all ${toolkitName} tools: ${toolkitAuthUrl}\n` +
+                `Option 2 — Authorize only this tool: ${result.authorization_url}\n\n` +
+                `Please visit one of the URLs above, complete the login, and let me know when you're done.`;
+            } else {
+              authResponse.message =
+                `Please authorize this tool by visiting: ${result.authorization_url}\n\n` +
+                `Let me know when you're done so I can proceed.`;
+            }
+
+            return json(authResponse);
           }
 
           return json({
@@ -256,10 +284,11 @@ export async function registerArcadeTools(
     api.logger.info(`[arcade] Found ${tools.length} tools from Arcade`);
 
     const ctx: ArcadeToolContext = { client, config, logger: api.logger };
+    const effectiveFilter = resolveEffectiveToolsFilter(config);
 
     for (const arcadeTool of tools) {
-      // Check if tool is allowed by filter
-      if (!matchesToolFilter(arcadeTool.name, config.tools)) {
+      // Check if tool is allowed by filter (uses default allowlist if no explicit filter)
+      if (!matchesToolFilter(arcadeTool.name, effectiveFilter)) {
         continue;
       }
 
@@ -330,10 +359,11 @@ export function registerArcadeToolsFromCache(
   }
 
   const ctx: ArcadeToolContext = { client, config, logger: api.logger };
+  const effectiveFilter = resolveEffectiveToolsFilter(config);
 
   for (const cached of cachedTools) {
-    // Check if tool is allowed by filter
-    if (!matchesToolFilter(cached.name, config.tools)) {
+    // Check if tool is allowed by filter (uses default allowlist if no explicit filter)
+    if (!matchesToolFilter(cached.name, effectiveFilter)) {
       continue;
     }
 
@@ -392,6 +422,7 @@ export function registerStaticTools(
 ): RegisteredTool[] {
   const ctx: ArcadeToolContext = { client, config, logger: api.logger };
   const registered: RegisteredTool[] = [];
+  const effectiveFilter = resolveEffectiveToolsFilter(config);
 
   // Override execute handler for arcade.list_tools
   const listToolsHandler = {
@@ -413,14 +444,15 @@ export function registerStaticTools(
         const toolkit = params.toolkit as string | undefined;
         const tools = await client.listTools({ toolkit, forceRefresh: true });
 
+        // Apply tool filter — only return tools matching the configured allowlist/denylist
+        const filtered = tools.filter((t) => matchesToolFilter(t.name, effectiveFilter));
+
         return json({
           success: true,
-          count: tools.length,
-          tools: tools.map((t) => ({
+          count: filtered.length,
+          tools: filtered.map((t) => ({
             name: t.name,
             description: t.description,
-            toolkit: t.toolkit,
-            requires_auth: t.requires_auth,
           })),
         });
       } catch (err) {
@@ -447,6 +479,14 @@ export function registerStaticTools(
 
       try {
         const toolName = params.tool_name as string;
+
+        // Enforce tool filter — only allow authorizing tools that pass the allowlist/denylist
+        if (!matchesToolFilter(toolName, effectiveFilter)) {
+          return json({
+            error: `Tool "${toolName}" is not in the allowed tools list.`,
+          });
+        }
+
         const response = await client.authorize(toolName);
 
         return json({
@@ -487,6 +527,13 @@ export function registerStaticTools(
       try {
         const toolName = params.tool_name as string;
         const input = (params.input as Record<string, unknown>) ?? {};
+
+        // Enforce tool filter — only allow executing tools that pass the allowlist/denylist
+        if (!matchesToolFilter(toolName, effectiveFilter)) {
+          return json({
+            error: `Tool "${toolName}" is not in the allowed tools list.`,
+          });
+        }
 
         const result = await client.executeWithAuth(toolName, input, {
           onAuthRequired: async (authUrl) => {

@@ -4,7 +4,47 @@
  * Defines the configuration schema and types for the Arcade.dev integration.
  */
 
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import { z } from "zod";
+
+// ============================================================================
+// Credentials File
+// ============================================================================
+
+/**
+ * Path to the dedicated credentials file, following OpenClaw's credential
+ * storage pattern (~/.openclaw/credentials/<plugin>.json).
+ *
+ * This file is read directly by the plugin at startup and is never exposed
+ * to the AI agent through config, tools, or RPC methods.
+ */
+const CREDENTIALS_PATH = path.join(
+  os.homedir(), ".openclaw", "credentials", "arcade.json",
+);
+
+export function getCredentialsPath(): string {
+  return CREDENTIALS_PATH;
+}
+
+/**
+ * Load API key and user ID from the dedicated credentials file.
+ * Returns null if the file doesn't exist or can't be parsed.
+ */
+function loadCredentialsFile(): { apiKey?: string; userId?: string } | null {
+  try {
+    if (!fs.existsSync(CREDENTIALS_PATH)) return null;
+    const content = fs.readFileSync(CREDENTIALS_PATH, "utf-8");
+    const data = JSON.parse(content);
+    return {
+      apiKey: typeof data.apiKey === "string" ? data.apiKey : undefined,
+      userId: typeof data.userId === "string" ? data.userId : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
 
 // ============================================================================
 // Configuration Schema
@@ -31,6 +71,7 @@ export const ArcadeConfigSchema = z.object({
   autoAuth: z.boolean().default(true),
   cacheToolsTtlMs: z.number().default(300000), // 5 minutes
   useApiTools: z.boolean().default(false), // Include *Api toolkits (e.g., GithubApi, SlackApi)
+  useDefaultAllowlist: z.boolean().default(true), // Restrict to curated toolkits when no tools.allow is set
 });
 
 export type ArcadeConfig = z.infer<typeof ArcadeConfigSchema>;
@@ -311,6 +352,36 @@ export const ARCADE_TOOLKITS = {
 export type ArcadeToolkitId = keyof typeof ARCADE_TOOLKITS;
 
 // ============================================================================
+// Default Allowlist
+// ============================================================================
+
+/**
+ * Generate default allow patterns from the curated ARCADE_TOOLKITS list.
+ * Produces patterns like ["Gmail.*", "GoogleCalendar.*", "Slack.*", ...].
+ */
+export function getDefaultAllowPatterns(): string[] {
+  const prefixes = new Set<string>();
+  for (const toolkit of Object.values(ARCADE_TOOLKITS)) {
+    for (const tool of toolkit.tools) {
+      prefixes.add(`${tool.split(".")[0]}.*`);
+    }
+  }
+  return Array.from(prefixes);
+}
+
+/**
+ * Resolve the effective tools filter, applying the default allowlist
+ * when no explicit tools.allow is configured.
+ */
+export function resolveEffectiveToolsFilter(config: ArcadeConfig): ToolsFilter {
+  const filter: ToolsFilter = { ...config.tools };
+  if (!filter.allow?.length && config.useDefaultAllowlist !== false) {
+    filter.allow = getDefaultAllowPatterns();
+  }
+  return filter;
+}
+
+// ============================================================================
 // Config Helpers
 // ============================================================================
 
@@ -320,12 +391,23 @@ export type ArcadeToolkitId = keyof typeof ARCADE_TOOLKITS;
 export function resolveArcadeConfig(raw: unknown): ArcadeConfig {
   const parsed = ArcadeConfigSchema.parse(raw ?? {});
 
-  // Check for API key from environment if not in config
+  // Resolution order for secrets:
+  // 1. Plugin config value (may be resolved from ${ENV_VAR} by the gateway)
+  // 2. Dedicated credentials file (~/.openclaw/credentials/arcade.json)
+  // 3. Environment variables (ARCADE_API_KEY, ARCADE_USER_ID)
+
+  if (!parsed.apiKey || !parsed.userId) {
+    const creds = loadCredentialsFile();
+    if (creds) {
+      if (!parsed.apiKey && creds.apiKey) parsed.apiKey = creds.apiKey;
+      if (!parsed.userId && creds.userId) parsed.userId = creds.userId;
+    }
+  }
+
   if (!parsed.apiKey) {
     parsed.apiKey = process.env.ARCADE_API_KEY ?? process.env.ARCADE_KEY;
   }
 
-  // Check for user ID from environment
   if (!parsed.userId) {
     parsed.userId = process.env.ARCADE_USER_ID ?? process.env.ARCADE_USER;
   }
@@ -432,6 +514,10 @@ export const arcadeConfigSchema = {
     useApiTools: {
       label: "Include API Toolkits",
       description: "Include comprehensive API toolkits (e.g., GithubApi, SlackApi) with more tools",
+    },
+    useDefaultAllowlist: {
+      label: "Use Default Tool Allowlist",
+      description: "When no tools.allow is set, restrict to curated popular toolkits (~130 tools). Set to false for all tools.",
     },
   },
 };

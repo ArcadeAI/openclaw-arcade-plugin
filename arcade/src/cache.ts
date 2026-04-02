@@ -24,6 +24,8 @@ export type CachedTool = {
   toolkit_version?: string;
   requires_auth?: boolean;
   auth_provider?: string;
+  auth_provider_id?: string;
+  auth_scopes?: string[];
 };
 
 export type ArcadeToolsCache = {
@@ -71,7 +73,7 @@ function getCacheFile(): string {
  */
 function ensureCacheDir(): void {
   if (!fs.existsSync(getCacheDir())) {
-    fs.mkdirSync(getCacheDir(), { recursive: true });
+    fs.mkdirSync(getCacheDir(), { recursive: true, mode: 0o700 });
   }
 }
 
@@ -161,6 +163,8 @@ export function writeCache(tools: ArcadeToolDefinition[]): ArcadeToolsCache {
       toolkit_version: toolkitVersion,
       requires_auth: tool.requires_auth,
       auth_provider: tool.auth_provider,
+      auth_provider_id: tool.auth_provider_id,
+      auth_scopes: tool.auth_scopes,
     };
   });
 
@@ -174,7 +178,7 @@ export function writeCache(tools: ArcadeToolDefinition[]): ArcadeToolsCache {
     tools: cachedTools,
   };
 
-  fs.writeFileSync(getCacheFile(), JSON.stringify(cache, null, 2));
+  fs.writeFileSync(getCacheFile(), JSON.stringify(cache, null, 2), { mode: 0o600 });
   return cache;
 }
 
@@ -282,5 +286,7 @@ export function toToolDefinition(cached: CachedTool): ArcadeToolDefinition {
     },
     requires_auth: cached.requires_auth,
     auth_provider: cached.auth_provider,
+    auth_provider_id: cached.auth_provider_id,
+    auth_scopes: cached.auth_scopes,
   };
 }

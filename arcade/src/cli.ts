@@ -2,17 +2,21 @@
  * Arcade CLI Commands
  *
  * Provides CLI commands for managing Arcade integration:
+ * - arcade credentials setup/show/clear
  * - arcade init
- * - arcade tools list
- * - arcade tools search
- * - arcade auth status
- * - arcade auth login
- * - arcade config show
+ * - arcade tools list/search/info/execute
+ * - arcade auth status/login/login-toolkit/revoke
+ * - arcade config
+ * - arcade health
  */
 
+import fs from "node:fs";
+import path from "node:path";
+import readline from "node:readline";
 import type { Command } from "commander";
 import type { ArcadeClient } from "./client.js";
 import type { ArcadeConfig } from "./config.js";
+import { getCredentialsPath } from "./config.js";
 import {
   cacheExists,
   isCacheValid,
@@ -58,7 +62,7 @@ async function ensureCache(
     if (!opts?.silent) {
       logger.error("Arcade API key not configured");
       logger.info(
-        'Set ARCADE_API_KEY or run: openclaw config set plugins.entries.arcade.config.apiKey="<key>"',
+        "Run: openclaw arcade credentials setup",
       );
     }
     return false;
@@ -114,6 +118,46 @@ function formatAge(ms: number): string {
 }
 
 // ============================================================================
+// Interactive Prompts
+// ============================================================================
+
+/** Prompt for a secret value with hidden input (for API keys) */
+function promptSecret(question: string): Promise<string> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    // Redirect output to hide typed characters
+    const muted = {
+      write(s: string) {
+        if (s.includes(question)) process.stdout.write(s);
+      },
+    };
+    (rl as any).output = muted;
+    rl.question(question, (answer) => {
+      rl.close();
+      process.stdout.write("\n");
+      resolve(answer.trim());
+    });
+  });
+}
+
+/** Prompt for a visible value */
+function promptLine(question: string): Promise<string> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
+// ============================================================================
 // CLI Registration
 // ============================================================================
 
@@ -121,6 +165,109 @@ export function registerArcadeCli(program: Command, ctx: ArcadeCliContext): void
   const { client, config, logger } = ctx;
 
   const arcade = program.command("arcade").description("Arcade.dev tool integration commands");
+
+  // ==========================================================================
+  // Credentials Commands
+  // ==========================================================================
+
+  const credentials = arcade.command("credentials").description("Manage Arcade credentials securely");
+
+  credentials
+    .command("setup")
+    .description("Store Arcade API key and user ID (interactive prompt or --from file)")
+    .option("--from <file>", "Read credentials from a JSON file (keys: apiKey, userId)")
+    .action(async (opts) => {
+      let apiKey: string;
+      let userId: string;
+
+      if (opts.from) {
+        // Read from file (for scripted/automated setup)
+        try {
+          const content = fs.readFileSync(opts.from, "utf-8");
+          const data = JSON.parse(content);
+          apiKey = data.apiKey;
+          userId = data.userId;
+          if (!apiKey || !userId) {
+            logger.error("File must contain both 'apiKey' and 'userId' fields");
+            return;
+          }
+        } catch (err) {
+          logger.error(`Failed to read ${opts.from}: ${err instanceof Error ? err.message : String(err)}`);
+          return;
+        }
+      } else {
+        // Interactive prompts — API key input is hidden
+        console.log("\nArcade Credentials Setup");
+        console.log("Get your API key from: https://docs.arcade.dev/en/get-started/setup/api-keys\n");
+        apiKey = await promptSecret("Arcade API Key: ");
+        userId = await promptLine("User ID (email): ");
+        if (!apiKey || !userId) {
+          logger.error("Both API key and user ID are required");
+          return;
+        }
+      }
+
+      const credsPath = getCredentialsPath();
+      const credsDir = path.dirname(credsPath);
+
+      // Ensure directory exists with restricted permissions
+      if (!fs.existsSync(credsDir)) {
+        fs.mkdirSync(credsDir, { recursive: true, mode: 0o700 });
+      }
+
+      // Write credentials file with restricted permissions (user read/write only)
+      fs.writeFileSync(
+        credsPath,
+        JSON.stringify({ apiKey, userId }, null, 2),
+        { mode: 0o600 },
+      );
+
+      logger.info("Credentials saved securely");
+      logger.info("Restart the gateway to apply: openclaw gateway restart");
+    });
+
+  credentials
+    .command("show")
+    .description("Show whether credentials are configured (never shows values)")
+    .action(async () => {
+      const credsPath = getCredentialsPath();
+      const exists = fs.existsSync(credsPath);
+
+      console.log("\nArcade Credentials Status:");
+      console.log(`  Credentials file: ${exists ? "configured" : "not found"}`);
+
+      if (exists) {
+        const stat = fs.statSync(credsPath);
+        const perms = "0" + (stat.mode & 0o777).toString(8);
+        const tooOpen = Boolean(stat.mode & 0o077);
+        console.log(`  File permissions: ${perms}${tooOpen ? " (WARNING: too permissive — run chmod 600 " + credsPath + ")" : " (ok)"}`);
+
+        try {
+          const data = JSON.parse(fs.readFileSync(credsPath, "utf-8"));
+          console.log(`  API Key: ${data.apiKey ? "configured" : "not set"}`);
+          console.log(`  User ID: ${data.userId ? "configured" : "not set"}`);
+        } catch {
+          console.log("  (could not parse credentials file)");
+        }
+      }
+
+      console.log(`  Env ARCADE_API_KEY: ${process.env.ARCADE_API_KEY ? "set" : "not set"}`);
+      console.log(`  Env ARCADE_USER_ID: ${process.env.ARCADE_USER_ID ? "set" : "not set"}`);
+      console.log();
+    });
+
+  credentials
+    .command("clear")
+    .description("Remove stored credentials file")
+    .action(async () => {
+      const credsPath = getCredentialsPath();
+      if (fs.existsSync(credsPath)) {
+        fs.unlinkSync(credsPath);
+        logger.info("Credentials file removed");
+      } else {
+        logger.info("No credentials file found");
+      }
+    });
 
   // ==========================================================================
   // Init Command
@@ -622,6 +769,57 @@ export function registerArcadeCli(program: Command, ctx: ArcadeCliContext): void
     });
 
   auth
+    .command("login-toolkit <toolkit>")
+    .description("Authorize all tools in a toolkit with a single OAuth flow")
+    .action(async (toolkitName) => {
+      try {
+        if (!client.isConfigured()) {
+          logger.error("Arcade API key not configured");
+          return;
+        }
+
+        logger.info(`Authorizing all ${toolkitName} tools...`);
+
+        const response = await client.authorizeToolkit(toolkitName);
+
+        if (response.status === "completed") {
+          logger.info(`Already authorized for all ${toolkitName} tools`);
+          return;
+        }
+
+        if (response.authorization_url) {
+          console.log(`\nPlease visit the following URL to authorize all ${toolkitName} tools:`);
+          console.log(`\n  ${response.authorization_url}\n`);
+
+          if (response.authorization_id) {
+            logger.info("Waiting for authorization...");
+
+            try {
+              await client.waitForAuthorization(response.authorization_id, {
+                timeoutMs: 300000, // 5 minutes
+                onPoll: () => {
+                  process.stdout.write(".");
+                },
+              });
+
+              console.log();
+              logger.info(`Successfully authorized all ${toolkitName} tools`);
+            } catch (err) {
+              console.log();
+              logger.error(
+                `Authorization failed or timed out: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          }
+        } else {
+          logger.error("No authorization URL returned");
+        }
+      } catch (err) {
+        logger.error(`Failed to initiate toolkit auth: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    });
+
+  auth
     .command("revoke <connectionId>")
     .description("Revoke an authorization connection")
     .action(async (connectionId) => {
@@ -649,7 +847,8 @@ export function registerArcadeCli(program: Command, ctx: ArcadeCliContext): void
     .action(async (opts) => {
       const safeConfig = {
         ...config,
-        apiKey: config.apiKey ? `${config.apiKey.slice(0, 8)}...` : "(not set)",
+        apiKey: config.apiKey ? "configured" : "(not set)",
+        userId: config.userId ? "configured" : "(not set)",
       };
 
       if (opts.json) {
@@ -657,10 +856,14 @@ export function registerArcadeCli(program: Command, ctx: ArcadeCliContext): void
         return;
       }
 
+      const credsPath = getCredentialsPath();
+      const credsExists = fs.existsSync(credsPath);
+
       console.log("\nArcade Configuration:");
       console.log(`  Enabled: ${config.enabled}`);
+      console.log(`  Credentials file: ${credsExists ? "configured" : "not found"}`);
       console.log(`  API Key: ${safeConfig.apiKey}`);
-      console.log(`  User ID: ${config.userId || "(not set)"}`);
+      console.log(`  User ID: ${safeConfig.userId}`);
       console.log(`  Base URL: ${config.baseUrl}`);
       console.log(`  Tool Prefix: ${config.toolPrefix}`);
       console.log(`  Auto Auth: ${config.autoAuth}`);

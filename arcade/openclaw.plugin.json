@@ -84,6 +84,11 @@
         "type": "boolean",
         "description": "Include comprehensive *Api toolkits (e.g., GithubApi, SlackApi) with more tools",
         "default": false
+      },
+      "useDefaultAllowlist": {
+        "type": "boolean",
+        "description": "When no tools.allow filter is set, restrict to curated popular toolkits (~130 tools). Set to false for all tools.",
+        "default": true
       }
     },
     "required": []
@@ -119,6 +124,10 @@
     "useApiTools": {
       "label": "Include API Toolkits",
       "description": "Include comprehensive *Api toolkits (GithubApi, SlackApi, etc.) with more tools"
+    },
+    "useDefaultAllowlist": {
+      "label": "Use Default Tool Allowlist",
+      "description": "Restrict to curated popular toolkits when no tools.allow is set"
     }
   }
 }

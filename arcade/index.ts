@@ -37,6 +37,8 @@
  * ```
  */
 
+// TODO: Migrate to `openclaw/plugin-sdk/core` and `definePluginEntry` when available
+// See: https://docs.openclaw.ai/plugins/sdk-migration
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 
 import { arcadeConfigSchema, resolveArcadeConfig } from "./src/config.js";
@@ -99,7 +101,7 @@ const arcadePlugin = {
     } else {
       // No valid cache - log init message and use API
       api.logger.info(
-        `[arcade] Initializing (baseUrl: ${config.baseUrl}, userId: ${config.userId || "not set"})`,
+        `[arcade] Initializing (baseUrl: ${config.baseUrl}, userId: ${config.userId ? "configured" : "not set"})`,
       );
 
       if (!cacheStats.exists) {
@@ -254,7 +256,7 @@ const arcadePlugin = {
           enabled: config.enabled,
           configured: arcadeClient?.isConfigured() ?? false,
           healthy: isHealthy,
-          userId: arcadeClient?.getUserId() ?? null,
+          userConfigured: Boolean(arcadeClient?.getUserId()),
           registeredTools: registeredTools.length,
           toolkits: [...new Set(registeredTools.map((t) => t.toolkit))],
         });
@@ -286,7 +288,7 @@ const arcadePlugin = {
               `Arcade.dev Plugin Status`,
               `* Enabled: ${config.enabled}`,
               `* Configured: ${isConfigured}`,
-              `* User ID: ${config.userId || "(not set)"}`,
+              `* User ID: ${config.userId ? "configured" : "(not set)"}`,
               `* Registered Tools: ${toolCount}`,
               `* Toolkits: ${toolkits.join(", ") || "none"}`,
             ].join("\n"),
@@ -352,10 +354,32 @@ const arcadePlugin = {
               `[arcade] Tool ${toolInfo.arcadeName} requires authorization`,
             );
 
-            // Return a block response with the auth URL
+            // Try to get toolkit-level auth URL (single OAuth for all tools in the toolkit)
+            const toolkitName = toolInfo.toolkit;
+            let toolkitAuthUrl: string | undefined;
+
+            try {
+              const tkAuth = await arcadeClient.authorizeToolkit(toolkitName);
+              if (tkAuth.status !== "completed" && tkAuth.authorization_url) {
+                toolkitAuthUrl = tkAuth.authorization_url;
+              }
+            } catch {
+              // Toolkit-level auth not available, fall back to tool-level only
+            }
+
+            // Present both options when toolkit auth is available
+            const message = toolkitAuthUrl
+              ? `Authorization required for ${toolInfo.arcadeName}.\n\n` +
+                `Option 1 — Authorize all ${toolkitName} tools:\n${toolkitAuthUrl}\n\n` +
+                `Option 2 — Authorize only this tool:\n${authStatus.authorization_url}\n\n` +
+                `Please visit one of the URLs above, complete the login, and let me know when you're done so I can proceed.`
+              : `Authorization required for ${toolInfo.arcadeName}.\n\n` +
+                `Please visit this URL to authorize:\n${authStatus.authorization_url}\n\n` +
+                `Let me know when you're done so I can proceed.`;
+
             return {
               block: true,
-              blockReason: `Authorization required for ${toolInfo.arcadeName}. Please visit: ${authStatus.authorization_url}`,
+              blockReason: message,
             };
           }
         } catch (err) {

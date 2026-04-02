@@ -50,6 +50,8 @@ export type ArcadeToolDefinition = {
   };
   requires_auth?: boolean;
   auth_provider?: string;
+  auth_provider_id?: string;
+  auth_scopes?: string[];
   // Legacy format support
   parameters?: {
     type: "object";
@@ -227,6 +229,8 @@ export class ArcadeClient {
       } : undefined,
       requires_auth: tool.requirements?.authorization?.oauth2 !== undefined ||
                      tool.requirements?.authorization?.custom !== undefined,
+      auth_provider_id: tool.requirements?.authorization?.oauth2?.provider_id,
+      auth_scopes: tool.requirements?.authorization?.oauth2?.scopes,
     };
   }
 
@@ -403,6 +407,77 @@ export class ArcadeClient {
       status: "pending",
       authorization_id: authorizationId,
     });
+  }
+
+  // ==========================================================================
+  // Toolkit-Level Authorization
+  // ==========================================================================
+
+  /**
+   * Authorize all tools in a toolkit with a single OAuth flow.
+   * Collects all required scopes across the toolkit's tools and initiates
+   * a single auth request with the combined scopes.
+   */
+  async authorizeToolkit(
+    toolkitName: string,
+    userId?: string,
+  ): Promise<ArcadeAuthResponse> {
+    const uid = userId ?? this.userId;
+
+    // List all tools in the toolkit
+    const tools = await this.listTools({ toolkit: toolkitName, forceRefresh: true });
+
+    // Collect all OAuth2 scopes and determine provider
+    const scopes = new Set<string>();
+    let provider: string | undefined;
+
+    for (const tool of tools) {
+      if (tool.requires_auth) {
+        if (tool.auth_provider_id && !provider) {
+          provider = tool.auth_provider_id;
+        }
+        if (tool.auth_scopes) {
+          for (const s of tool.auth_scopes) scopes.add(s);
+        }
+      }
+    }
+
+    // If cached tools don't have scope metadata, fetch full definitions
+    if (!provider || scopes.size === 0) {
+      const toolsWithAuth = tools.filter((t) => t.requires_auth);
+      if (toolsWithAuth.length === 0) {
+        return { status: "completed" }; // No auth needed for this toolkit
+      }
+
+      for (const tool of toolsWithAuth) {
+        try {
+          const full = await this.sdk.tools.get(tool.name);
+          const oauth2 = full.requirements?.authorization?.oauth2;
+          if (oauth2) {
+            if (!provider) provider = oauth2.provider_id;
+            for (const s of oauth2.scopes ?? []) scopes.add(s);
+          }
+        } catch {
+          // Skip tools we can't fetch
+        }
+      }
+    }
+
+    if (!provider || scopes.size === 0) {
+      // Fall back to single-tool auth for the first tool that requires it
+      const firstAuth = tools.find((t) => t.requires_auth);
+      if (firstAuth) {
+        return this.authorize(firstAuth.name, uid);
+      }
+      return { status: "completed" };
+    }
+
+    // Initiate single auth flow with all combined scopes
+    const response = await this.sdk.auth.start(uid, provider, {
+      scopes: Array.from(scopes),
+    });
+
+    return this.convertAuthResponse(response);
   }
 
   // ==========================================================================
