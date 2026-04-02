@@ -251,8 +251,6 @@ export function registerArcadeCli(program: Command, ctx: ArcadeCliContext): void
         }
       }
 
-      console.log(`  Env ARCADE_API_KEY: ${process.env.ARCADE_API_KEY ? "set" : "not set"}`);
-      console.log(`  Env ARCADE_USER_ID: ${process.env.ARCADE_USER_ID ? "set" : "not set"}`);
       console.log();
     });
 
